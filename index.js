@@ -1,113 +1,57 @@
 import express from 'express';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcrypt';
+import multer from 'multer';
 import mongoose from 'mongoose';
-import { validationResult } from 'express-validator';
 
-import { registerValidation } from './validations/auth.js';
+import { PostController, UserController } from './controllers/index.js';
 
-import UserModel from './models/User.js';
+import { checkAuth, handleValidationErrors } from './utils/index.js';
+
+import { registerValidation, loginValidation, postCreateValidation } from './validations.js';
 
 mongoose
     .connect(
-        'mongodb+srv://cocobohd:wwwwww@cluster0.1cvuhkq.mongodb.net/blog?retryWrites=true&w=majority'
+        'mongodb+srv://cocobohd:wwwwww@cluster0.1cvuhkq.mongodb.net/blog?retryWrites=true&w=majority',
     )
     .then(() => console.log('DB: OK!'))
     .catch((err) => console.log('DB error', err));
 
 const app = express();
 
+const storage = multer.diskStorage({
+    destination: (_, __, cb) => {
+        cb(null, 'uploads');
+    },
+    filename: (_, file, cb) => {
+        cb(null, file.originalname);
+    },
+});
+
+const upload = multer({ storage });
+
 app.use(express.json());
+app.use('/uploads', express.static('uploads'));
 
-app.post('/auth/login', async (req, res) => {
-    try {
-        const user = await UserModel.findOne({ email: req.body.email });
+app.post('/auth/login', loginValidation, handleValidationErrors, UserController.login);
+app.post('/auth/register', registerValidation, handleValidationErrors, UserController.register);
+app.get('/auth/me', checkAuth, UserController.getMe);
 
-        if (!user) {
-            return res.status(404).json({
-                message: 'Can`t find user',
-            });
-        }
-
-        const isValidPass = await bcrypt.compare(req.body.password, user._doc.passwordHash)
-
-        if (!isValidPass) {
-            return res.status(400).json({
-                message: 'Incorrect login or password'
-            })
-        }
-
-        const token = jwt.sign(
-            {
-                // _id: user._id,
-                fullName: user.fullName,
-                password: user.passwordHash
-            },
-            'id1800',
-            {
-                expiresIn: '30d',
-            }
-        );
-
-        const { passwordHash, ...userData } = user._doc;
-
-        res.json({
-            ...userData,
-            token,
-        });
-    } catch (err) {
-        console.log(err);
-        res.status(500).json({
-            message: 'Can`t authentication',
-        });
-    }
+app.post('/upload', checkAuth, upload.single('image'), (req, res) => {
+    res.json({
+        url: `/uploads/${req.file.originalname}`,
+    });
 });
 
-app.post('/auth/register', registerValidation, async (req, res) => {
-    try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json(errors.array());
-        }
-
-        const password = req.body.password;
-        const salt = await bcrypt.genSalt(10);
-        const hash = await bcrypt.hash(password, salt);
-
-        const doc = new UserModel({
-            email: req.body.email,
-            fullName: req.body.fullName,
-            avatarUrl: req.body.avatarUrl,
-            passwordHash: hash,
-        });
-
-        const user = await doc.save();
-
-        const token = jwt.sign(
-            {
-                // _id: user._id,
-                fullName: user.fullName,
-                password: user.passwordHash
-            },
-            'id1800',
-            {
-                expiresIn: '30d',
-            }
-        );
-
-        const { passwordHash, ...userData } = user._doc;
-
-        res.json({
-            ...userData,
-            token,
-        });
-    } catch (err) {
-        console.log(err);
-        res.status(500).json({
-            message: 'Can`t register',
-        });
-    }
-});
+app.get('/posts', PostController.getAll);
+app.get('/posts/:id', PostController.getOne);
+app.post('/posts', checkAuth, postCreateValidation, handleValidationErrors, PostController.create);
+app.delete('/posts/:id', checkAuth, PostController.remove);
+app.patch(
+    '/posts/:id',
+    checkAuth,
+    postCreateValidation,
+    handleValidationErrors,
+    PostController.update,
+);
 
 app.listen(5555, (err) => {
     if (err) {
