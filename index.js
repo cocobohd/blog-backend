@@ -19,6 +19,50 @@ const app = express();
 
 app.use(express.json());
 
+app.post('/auth/login', async (req, res) => {
+    try {
+        const user = await UserModel.findOne({ email: req.body.email });
+
+        if (!user) {
+            return res.status(404).json({
+                message: 'Can`t find user',
+            });
+        }
+
+        const isValidPass = await bcrypt.compare(req.body.password, user._doc.passwordHash)
+
+        if (!isValidPass) {
+            return res.status(400).json({
+                message: 'Incorrect login or password'
+            })
+        }
+
+        const token = jwt.sign(
+            {
+                // _id: user._id,
+                fullName: user.fullName,
+                password: user.passwordHash
+            },
+            'id1800',
+            {
+                expiresIn: '30d',
+            }
+        );
+
+        const { passwordHash, ...userData } = user._doc;
+
+        res.json({
+            ...userData,
+            token,
+        });
+    } catch (err) {
+        console.log(err);
+        res.status(500).json({
+            message: 'Can`t authentication',
+        });
+    }
+});
+
 app.post('/auth/register', registerValidation, async (req, res) => {
     try {
         const errors = validationResult(req);
@@ -41,7 +85,9 @@ app.post('/auth/register', registerValidation, async (req, res) => {
 
         const token = jwt.sign(
             {
-                _id: user._id,
+                // _id: user._id,
+                fullName: user.fullName,
+                password: user.passwordHash
             },
             'id1800',
             {
